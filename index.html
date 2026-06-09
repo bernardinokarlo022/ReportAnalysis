@@ -78,7 +78,6 @@
   }
   .upload-btn:hover { filter: brightness(1.08); }
   .upload-btn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
-  .upload-note { font-family: var(--mono); font-size: 11px; color: var(--ink-soft); }
 
   /* --- Tab buttons --- */
   .tabs {
@@ -149,20 +148,31 @@
   .open:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
   .open:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-  /* --- Empty state --- */
-  .empty {
-    text-align: center;
+  .actions { display: flex; gap: 8px; align-items: center; }
+  .delete {
+    font-family: var(--body);
+    font-size: 14px;
+    font-weight: 500;
     color: var(--ink-soft);
-    padding: 64px 0;
-    font-family: var(--display);
-    font-size: 18px;
+    background: transparent;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 9px 16px;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: all 0.15s;
   }
+  .delete:hover { background: #C0392B; color: #fff; border-color: #C0392B; }
+  .delete:focus-visible { outline: 2px solid #C0392B; outline-offset: 2px; }
+
+  /* --- Empty state --- */
+  /* (removed) */
 
   /* --- Mobile --- */
   @media (max-width: 640px) {
     .row { grid-template-columns: 1fr; gap: 8px; }
     .idx { order: -1; }
-    .open { justify-self: start; margin-top: 8px; }
+    .actions { justify-self: start; margin-top: 8px; }
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -185,12 +195,10 @@
 
     <div class="toolbar">
       <button class="upload-btn" id="uploadBtn" type="button">Upload files</button>
-      <span class="upload-note">Added files are available this session only</span>
     </div>
     <input id="fileInput" type="file" multiple hidden>
 
     <ul id="list" class="list"></ul>
-    <div id="empty" class="empty" hidden>No reports yet. Add them in the REPORTS list inside this file.</div>
   </div>
 
 <script>
@@ -199,20 +207,21 @@
      -------------------------------------------------------------
      Each report is one entry. Add a block for each report you have.
        title    – the report name
-       category – a short label shown under the title
        date     – any text you want shown (e.g. "Mar 2026")
        desc     – a one-line summary (optional, can be "")
        file     – path to the actual file, relative to this page
                   e.g. "reports/q1-financials.pdf"
                   (use a full https:// link if it lives elsewhere)
+       tab      – which tab it belongs under. Must be one of:
+                  "Comments", "Live Comments", "Items", "Users"
 
      Example of one entry (copy this format into the list below):
        {
          title: "Q1 Financial Summary",
-         category: "Financial",
          date: "Mar 2026",
          desc: "Quarterly revenue and expenses overview.",
-         file: "reports/q1-financial-summary.pdf"
+         file: "reports/q1-financial-summary.pdf",
+         tab: "Items"
        }
      ============================================================= */
   const REPORTS = [
@@ -222,21 +231,32 @@
 
   // --- Below this line is the logic. You don't need to edit it. ---
 
-  const listEl  = document.getElementById("list");
-  const emptyEl = document.getElementById("empty");
+  const TABS = ["Comments", "Live Comments", "Items", "Users"];
+  let activeTab = "Comments";
 
-  // Tab buttons: clicking one makes it the active (highlighted) tab.
+  // Files grouped per tab. Seeded from REPORTS above, then uploads
+  // get added to whichever tab is currently selected.
+  const filesByTab = {};
+  TABS.forEach(t => filesByTab[t] = []);
+  REPORTS.forEach(r => {
+    const tab = TABS.includes(r.tab) ? r.tab : "Comments";
+    filesByTab[tab].push(r);
+  });
+  const listEl  = document.getElementById("list");
+
+  // Tab buttons: clicking one selects it and shows that tab's files.
   document.querySelectorAll("#tabs .tab").forEach(tab => {
     tab.addEventListener("click", () => {
+      activeTab = tab.textContent;
       document.querySelectorAll("#tabs .tab").forEach(t =>
         t.setAttribute("aria-pressed", t === tab));
-      // Add what each tab should do here, e.g. show different content.
+      render();
     });
   });
 
-  // Upload button: lets you pick files and adds them to the list for
-  // this browser session. NOTE: these are not saved anywhere — they
-  // disappear on refresh. For permanent storage, place files in the
+  // Upload button: adds the picked files to the CURRENTLY SELECTED tab,
+  // for this browser session only. NOTE: these are not saved anywhere —
+  // they disappear on refresh. For permanent storage, place files in the
   // "reports/" folder and host the page (see notes at the end of file).
   const uploadBtn = document.getElementById("uploadBtn");
   const fileInput = document.getElementById("fileInput");
@@ -247,9 +267,8 @@
     const today = new Date().toLocaleDateString(undefined,
       { month: "short", year: "numeric" });
     [...fileInput.files].forEach(file => {
-      REPORTS.push({
+      filesByTab[activeTab].push({
         title: file.name,
-        category: "Uploaded",
         date: today,
         desc: "",
         file: URL.createObjectURL(file)
@@ -260,8 +279,9 @@
   });
 
   function render() {
+    const items = filesByTab[activeTab];
     listEl.innerHTML = "";
-    REPORTS.forEach((r, i) => {
+    items.forEach((r, i) => {
       const li = document.createElement("li");
       li.className = "row";
       const num = String(i + 1).padStart(3, "0");
@@ -270,17 +290,35 @@
         <div>
           <h2>${escapeHtml(r.title)}</h2>
           <div class="meta">
-            <span>${escapeHtml(r.category)}</span>
+            <span>${escapeHtml(activeTab)}</span>
             <span>${escapeHtml(r.date)}</span>
           </div>
           ${r.desc ? `<p class="desc">${escapeHtml(r.desc)}</p>` : ""}
         </div>
-        <a class="open" href="${encodeURI(r.file)}" target="_blank" rel="noopener">Open</a>
+        <div class="actions">
+          <a class="open" href="${encodeURI(r.file)}" target="_blank" rel="noopener">Open</a>
+          <button class="delete" type="button" data-index="${i}">Delete</button>
+        </div>
       `;
       listEl.appendChild(li);
     });
-    emptyEl.hidden = REPORTS.length !== 0;
   }
+
+  // Delete button (event delegation): removes the file from the current
+  // tab and frees its memory. Confirms first to avoid accidental clicks.
+  listEl.addEventListener("click", (e) => {
+    const btn = e.target.closest(".delete");
+    if (!btn) return;
+    const i = Number(btn.dataset.index);
+    const item = filesByTab[activeTab][i];
+    if (!item) return;
+    if (!confirm(`Delete "${item.title}"?`)) return;
+    if (typeof item.file === "string" && item.file.startsWith("blob:")) {
+      URL.revokeObjectURL(item.file);
+    }
+    filesByTab[activeTab].splice(i, 1);
+    render();
+  });
 
   function escapeHtml(str) {
     return String(str).replace(/[&<>"']/g, c =>
