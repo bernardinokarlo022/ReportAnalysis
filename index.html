@@ -23,6 +23,9 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800;900&family=Inter:wght@400;500;600&family=Spline+Sans+Mono:wght@500&display=swap" rel="stylesheet">
 
+<!-- Supabase: powers shared storage so uploads are visible to everyone -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
 <style>
   :root {
     --bg:        #0B0B0D;
@@ -94,6 +97,18 @@
     -webkit-text-fill-color: transparent;
   }
 
+  /* --- Notice banner --- */
+  .notice {
+    margin-top: 22px;
+    padding: 12px 16px;
+    border: 1px solid rgba(255,122,24,0.4);
+    background: rgba(255,122,24,0.10);
+    border-radius: 10px;
+    color: #FFD8B0;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
   /* --- Toolbar / upload --- */
   .toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin: 26px 0 4px; }
   .upload-btn {
@@ -113,6 +128,7 @@
   .upload-btn:hover { filter: brightness(1.06); box-shadow: 0 10px 28px rgba(242,67,30,0.42); }
   .upload-btn:active { transform: translateY(1px); }
   .upload-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+  .upload-btn:disabled { opacity: 0.6; cursor: default; box-shadow: none; filter: none; }
 
   /* --- Tabs --- */
   .tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 26px; }
@@ -213,6 +229,8 @@
         <h1>Report <span class="accent">Analysis</span></h1>
       </header>
 
+      <div id="notice" class="notice" hidden></div>
+
       <div class="tabs" id="tabs" role="tablist" aria-label="Sections">
         <button class="tab" aria-pressed="true">Comments</button>
         <button class="tab" aria-pressed="false">Live Comments</button>
@@ -259,19 +277,82 @@
 
   // --- Below this line is the logic. You don't need to edit it. ---
 
+  /* =============================================================
+     SHARED STORAGE SETUP — do this once so uploads are visible
+     to everyone who visits the page (not just you).
+     -------------------------------------------------------------
+     A static webpage has no server, so we use Supabase (free) to
+     store the files in the cloud and read them back on every visit.
+
+     1. Go to https://supabase.com, sign up, create a new project.
+     2. Storage > "New bucket" > name it exactly  reports
+        and turn ON "Public bucket".
+     3. SQL Editor > "New query" > paste and run this:
+
+          create table reports (
+            id uuid primary key default gen_random_uuid(),
+            tab text not null,
+            title text not null,
+            path text not null,
+            url text not null,
+            created_at timestamptz default now()
+          );
+          alter table reports enable row level security;
+          create policy "read"   on reports for select using (true);
+          create policy "insert" on reports for insert with check (true);
+          create policy "remove" on reports for delete using (true);
+
+          create policy "files read"   on storage.objects
+            for select using (bucket_id = 'reports');
+          create policy "files insert" on storage.objects
+            for insert with check (bucket_id = 'reports');
+          create policy "files remove" on storage.objects
+            for delete using (bucket_id = 'reports');
+
+     4. Settings > API. Copy "Project URL" and the "anon public"
+        key into the two lines just below.
+
+     HEADS UP: the rules above make this a fully PUBLIC board —
+     anyone who visits can upload AND delete. To lock that down
+     later, add Supabase Auth and tighten the policies.
+     ============================================================= */
+  const SUPABASE_URL      = "https://uijxdsrlcgekhxychtxk.supabase.co";   // e.g. https://abcd1234.supabase.co
+  const SUPABASE_ANON_KEY = "sb_publishable_xLtpI11seCQ0o22KjPYdiA_Q_oQUH3C";
+  const BUCKET = "reports";
+
   const TABS = ["Comments", "Live Comments", "Items", "Users"];
   let activeTab = "Comments";
 
-  // Files grouped per tab. Seeded from REPORTS above, then uploads
-  // get added to whichever tab is currently selected.
-  const filesByTab = {};
-  TABS.forEach(t => filesByTab[t] = []);
-  REPORTS.forEach(r => {
-    const tab = TABS.includes(r.tab) ? r.tab : "Comments";
-    filesByTab[tab].push(r);
-  });
+  const configured =
+    /^https:\/\//.test(SUPABASE_URL) && SUPABASE_ANON_KEY.length > 30;
+  const db = configured
+    ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+    : null;
 
-  const listEl = document.getElementById("list");
+  // Static entries from the REPORTS list above (always shown), plus
+  // any session-only uploads used while Supabase isn't configured yet.
+  let localItems = REPORTS.map((r, i) => ({
+    id: "seed-" + i,
+    tab: TABS.includes(r.tab) ? r.tab : "Comments",
+    title: r.title,
+    url: r.file,
+    date: r.date || "",
+    desc: r.desc || ""
+  }));
+  // Entries loaded from Supabase — shared across ALL visitors.
+  let remoteItems = [];
+
+  const listEl    = document.getElementById("list");
+  const noticeEl  = document.getElementById("notice");
+  const uploadBtn = document.getElementById("uploadBtn");
+  const fileInput = document.getElementById("fileInput");
+
+  if (!configured) {
+    noticeEl.hidden = false;
+    noticeEl.textContent =
+      "Shared storage isn't set up yet, so uploads stay on your device only. " +
+      "Follow the SHARED STORAGE SETUP steps in this file to make them visible to everyone.";
+  }
 
   // Tab buttons: clicking one selects it and shows that tab's files.
   document.querySelectorAll("#tabs .tab").forEach(tab => {
@@ -283,32 +364,75 @@
     });
   });
 
-  // Upload button: adds the picked files to the CURRENTLY SELECTED tab,
-  // for this browser session only. These are not saved to a server, so
-  // they clear on refresh. For permanent storage, place files in the
-  // "reports/" folder and host the page (see notes at the end of file).
-  const uploadBtn = document.getElementById("uploadBtn");
-  const fileInput = document.getElementById("fileInput");
-
+  // Upload: sends files to Supabase (shared) when configured, otherwise
+  // keeps them on this device for the current session only.
   uploadBtn.addEventListener("click", () => fileInput.click());
 
-  fileInput.addEventListener("change", () => {
-    const today = new Date().toLocaleDateString(undefined,
-      { month: "short", year: "numeric" });
-    [...fileInput.files].forEach(file => {
-      filesByTab[activeTab].push({
-        title: file.name,
-        date: today,
-        desc: "",
-        file: URL.createObjectURL(file)
-      });
-    });
+  fileInput.addEventListener("change", async () => {
+    const files = [...fileInput.files];
     fileInput.value = "";
-    render();
+    if (!files.length) return;
+
+    if (!configured) {
+      const today = fmtMonth(new Date());
+      files.forEach(file => localItems.push({
+        id: "local-" + Date.now() + "-" + Math.random().toString(36).slice(2),
+        tab: activeTab,
+        title: file.name,
+        url: URL.createObjectURL(file),
+        date: today
+      }));
+      render();
+      return;
+    }
+
+    setBusy(true, "Uploading…");
+    try {
+      for (const file of files) {
+        const safe = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+        const path = activeTab.replace(/\s+/g, "-").toLowerCase()
+                     + "/" + Date.now() + "-" + safe;
+        const up = await db.storage.from(BUCKET).upload(path, file);
+        if (up.error) throw up.error;
+        const url = db.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
+        const ins = await db.from("reports")
+          .insert({ tab: activeTab, title: file.name, path, url });
+        if (ins.error) throw ins.error;
+      }
+      await loadRemote();
+    } catch (err) {
+      alert("Upload failed: " + (err.message || err));
+    } finally {
+      setBusy(false);
+    }
   });
 
+  // Load the shared files everyone can see.
+  async function loadRemote() {
+    if (!configured) { render(); return; }
+    const { data, error } = await db.from("reports")
+      .select("*").order("created_at", { ascending: true });
+    if (error) {
+      noticeEl.hidden = false;
+      noticeEl.textContent = "Couldn't load shared files: " + error.message;
+      render();
+      return;
+    }
+    remoteItems = (data || []).map(row => ({
+      id: row.id,
+      tab: row.tab,
+      title: row.title,
+      url: row.url,
+      path: row.path,
+      shared: true,
+      date: fmtMonth(new Date(row.created_at))
+    }));
+    render();
+  }
+
+  // Show the files for the active tab.
   function render() {
-    const items = filesByTab[activeTab];
+    const items = [...localItems, ...remoteItems].filter(f => f.tab === activeTab);
     listEl.innerHTML = "";
     items.forEach((r, i) => {
       const li = document.createElement("li");
@@ -320,41 +444,69 @@
           <h2>${escapeHtml(r.title)}</h2>
           <div class="meta">
             <span>${escapeHtml(activeTab)}</span>
-            <span>${escapeHtml(r.date)}</span>
+            ${r.date ? `<span>${escapeHtml(r.date)}</span>` : ""}
+            ${r.shared ? `<span>Shared</span>` : ""}
           </div>
           ${r.desc ? `<p class="desc">${escapeHtml(r.desc)}</p>` : ""}
         </div>
         <div class="actions">
-          <a class="open" href="${encodeURI(r.file)}" target="_blank" rel="noopener">Open</a>
-          <button class="delete" type="button" data-index="${i}">Delete</button>
+          <a class="open" href="${encodeURI(r.url)}" target="_blank" rel="noopener">Open</a>
+          <button class="delete" type="button" data-id="${escapeHtml(String(r.id))}">Delete</button>
         </div>
       `;
       listEl.appendChild(li);
     });
   }
 
-  // Delete button (event delegation): removes the file from the current
-  // tab and frees its memory. Confirms first to avoid accidental clicks.
-  listEl.addEventListener("click", (e) => {
+  // Delete: removes from the cloud (for shared files) or from this
+  // session (for local ones). Confirms first to avoid accidents.
+  listEl.addEventListener("click", async (e) => {
     const btn = e.target.closest(".delete");
     if (!btn) return;
-    const i = Number(btn.dataset.index);
-    const item = filesByTab[activeTab][i];
+    const id = btn.dataset.id;
+    const remote = remoteItems.find(f => String(f.id) === id);
+    const local  = localItems.find(f => String(f.id) === id);
+    const item = remote || local;
     if (!item) return;
     if (!confirm(`Delete "${item.title}"?`)) return;
-    if (typeof item.file === "string" && item.file.startsWith("blob:")) {
-      URL.revokeObjectURL(item.file);
+
+    if (remote && configured) {
+      setBusy(true, "Deleting…");
+      try {
+        const s = await db.storage.from(BUCKET).remove([item.path]);
+        if (s.error) throw s.error;
+        const d = await db.from("reports").delete().eq("id", item.id);
+        if (d.error) throw d.error;
+        await loadRemote();
+      } catch (err) {
+        alert("Delete failed: " + (err.message || err));
+      } finally {
+        setBusy(false);
+      }
+    } else {
+      if (typeof item.url === "string" && item.url.startsWith("blob:")) {
+        URL.revokeObjectURL(item.url);
+      }
+      localItems = localItems.filter(f => String(f.id) !== id);
+      render();
     }
-    filesByTab[activeTab].splice(i, 1);
-    render();
   });
+
+  function setBusy(busy, label) {
+    uploadBtn.disabled = busy;
+    uploadBtn.textContent = busy ? (label || "Working…") : "Upload files";
+  }
+
+  function fmtMonth(d) {
+    return d.toLocaleDateString(undefined, { month: "short", year: "numeric" });
+  }
 
   function escapeHtml(str) {
     return String(str).replace(/[&<>"']/g, c =>
       ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
   }
 
-  render();
+  loadRemote();
 </script>
 
 <!-- ============================================================
