@@ -1,69 +1,257 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Report Analysis Dashboard</title>
-    <style>
-        body {
-            background: #0f172a;
-            color: white;
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 30px;
-        }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>User Report</title>
 
-        h1 {
-            text-align: center;
-            color: #38bdf8;
-        }
+<!-- ============================================================
+     HOW TO USE THIS PAGE
+     ------------------------------------------------------------
+     1. Add your reports in the REPORTS list near the bottom of
+        this file (look for "EDIT YOUR REPORTS HERE").
+     2. Put your actual report files (PDFs, etc.) in a folder
+        next to this file, e.g.  reports/q1-financials.pdf
+     3. In each entry, set "file" to that path.
+     4. To publish for free, see "HOW TO HOST" at the very bottom.
+     ============================================================ -->
 
-        .container {
-            display: flex;
-            gap: 20px;
-            justify-content: center;
-            flex-wrap: wrap;
-            margin-top: 30px;
-        }
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Spectral:wght@500;600&family=Inter:wght@400;500;600&family=Spline+Sans+Mono:wght@500&display=swap" rel="stylesheet">
 
-        .card {
-            background: #1e293b;
-            padding: 20px;
-            border-radius: 15px;
-            width: 250px;
-            text-align: center;
-        }
+<style>
+  :root {
+    --paper:    #F6F7F9;
+    --card:     #FFFFFF;
+    --ink:      #1A2233;
+    --ink-soft: #5B6678;
+    --line:     #E2E6EC;
+    --accent:   #0E7C6B;   /* deep teal */
+    --display: "Spectral", Georgia, serif;
+    --body: "Inter", system-ui, sans-serif;
+    --mono: "Spline Sans Mono", ui-monospace, monospace;
+  }
 
-        .number {
-            font-size: 40px;
-            font-weight: bold;
-            color: #38bdf8;
-        }
-    </style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: var(--body);
+    background: var(--paper);
+    color: var(--ink);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 880px; margin: 0 auto; padding: 56px 24px 80px; }
+
+  /* --- Header --- */
+  header { border-bottom: 1px solid var(--line); padding-bottom: 28px; }
+  h1 {
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: clamp(34px, 6vw, 48px);
+    letter-spacing: -0.01em;
+    line-height: 1.05;
+  }
+
+  /* --- Tab buttons --- */
+  .tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 24px 0 4px;
+  }
+  .tab {
+    font-family: var(--body);
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--ink-soft);
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 9px 16px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .tab:hover { border-color: var(--accent); color: var(--accent); }
+  .tab[aria-pressed="true"] {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+  .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* --- Report rows --- */
+  .list { list-style: none; }
+  .row {
+    display: grid;
+    grid-template-columns: 64px 1fr auto;
+    gap: 20px;
+    align-items: center;
+    padding: 22px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .idx { font-family: var(--mono); font-size: 13px; color: var(--accent); }
+  .row h2 {
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: 19px;
+    letter-spacing: -0.01em;
+  }
+  .meta {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink-soft);
+    margin-top: 4px;
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .desc { color: var(--ink-soft); font-size: 14px; margin-top: 8px; max-width: 56ch; }
+  .open {
+    font-family: var(--body);
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--accent);
+    text-decoration: none;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 9px 16px;
+    white-space: nowrap;
+    transition: all 0.15s;
+  }
+  .open:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .open:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* --- Empty state --- */
+  .empty {
+    text-align: center;
+    color: var(--ink-soft);
+    padding: 64px 0;
+    font-family: var(--display);
+    font-size: 18px;
+  }
+
+  /* --- Mobile --- */
+  @media (max-width: 640px) {
+    .row { grid-template-columns: 1fr; gap: 8px; }
+    .idx { order: -1; }
+    .open { justify-self: start; margin-top: 8px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
+</style>
 </head>
 <body>
+  <div class="wrap">
+    <header>
+      <h1>User Report</h1>
+    </header>
 
-<h1>Live Comment Analysis Dashboard</h1>
+    <nav class="tabs" id="tabs" aria-label="Sections">
+      <button class="tab" aria-pressed="true">Comments</button>
+      <button class="tab" aria-pressed="false">Live Comments</button>
+      <button class="tab" aria-pressed="false">Items</button>
+      <button class="tab" aria-pressed="false">Users</button>
+    </nav>
 
-<div class="container">
-    <div class="card">
-        <h3>Total Processed</h3>
-        <div class="number">185</div>
-    </div>
+    <ul id="list" class="list"></ul>
+    <div id="empty" class="empty" hidden>No reports yet. Add them in the REPORTS list inside this file.</div>
+  </div>
 
-    <div class="card">
-        <h3>No Risk</h3>
-        <div class="number">75</div>
-    </div>
+<script>
+  /* =============================================================
+     EDIT YOUR REPORTS HERE
+     -------------------------------------------------------------
+     Each report is one entry. Add a block for each report you have.
+       title    – the report name
+       category – a short label shown under the title
+       date     – any text you want shown (e.g. "Mar 2026")
+       desc     – a one-line summary (optional, can be "")
+       file     – path to the actual file, relative to this page
+                  e.g. "reports/q1-financials.pdf"
+                  (use a full https:// link if it lives elsewhere)
 
-    <div class="card">
-        <h3>Against Rules</h3>
-        <div class="number">98</div>
-    </div>
+     Example of one entry (copy this format into the list below):
+       {
+         title: "Q1 Financial Summary",
+         category: "Financial",
+         date: "Mar 2026",
+         desc: "Quarterly revenue and expenses overview.",
+         file: "reports/q1-financial-summary.pdf"
+       }
+     ============================================================= */
+  const REPORTS = [
 
-    <div class="card">
-        <h3>Against W/O</h3>
-        <div class="number">12</div>
-    </div>
-</div>
+  ];
+  /* ===================  END OF EDITABLE LIST  =================== */
 
+  // --- Below this line is the logic. You don't need to edit it. ---
+
+  const listEl  = document.getElementById("list");
+  const emptyEl = document.getElementById("empty");
+
+  // Tab buttons: clicking one makes it the active (highlighted) tab.
+  document.querySelectorAll("#tabs .tab").forEach(tab => {
+    tab.addEventListener("click", () => {
+      document.querySelectorAll("#tabs .tab").forEach(t =>
+        t.setAttribute("aria-pressed", t === tab));
+      // Add what each tab should do here, e.g. show different content.
+    });
+  });
+
+  function render() {
+    listEl.innerHTML = "";
+    REPORTS.forEach((r, i) => {
+      const li = document.createElement("li");
+      li.className = "row";
+      const num = String(i + 1).padStart(3, "0");
+      li.innerHTML = `
+        <span class="idx">REP-${num}</span>
+        <div>
+          <h2>${escapeHtml(r.title)}</h2>
+          <div class="meta">
+            <span>${escapeHtml(r.category)}</span>
+            <span>${escapeHtml(r.date)}</span>
+          </div>
+          ${r.desc ? `<p class="desc">${escapeHtml(r.desc)}</p>` : ""}
+        </div>
+        <a class="open" href="${encodeURI(r.file)}" target="_blank" rel="noopener">Open</a>
+      `;
+      listEl.appendChild(li);
+    });
+    emptyEl.hidden = REPORTS.length !== 0;
+  }
+
+  function escapeHtml(str) {
+    return String(str).replace(/[&<>"']/g, c =>
+      ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+  }
+
+  render();
+</script>
+
+<!-- ============================================================
+     HOW TO HOST (publish this online for free)
+     ------------------------------------------------------------
+     Option A — GitHub Pages:
+       1. Create a free account at github.com
+       2. Make a new repository (e.g. "reports")
+       3. Upload this file (rename it to "index.html") plus your
+          "reports/" folder of files
+       4. In the repo: Settings > Pages > set source to "main"
+       5. Your site goes live at
+          https://YOUR-USERNAME.github.io/reports/
+
+     Option B — Netlify (drag & drop):
+       1. Put this file + your "reports/" folder in one folder
+       2. Go to app.netlify.com/drop and drag the folder in
+       3. You get a live URL instantly
+
+     Both are free and need no server or database.
+     ============================================================ -->
 </body>
 </html>
