@@ -392,7 +392,11 @@
         const safe = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
         const path = activeTab.replace(/\s+/g, "-").toLowerCase()
                      + "/" + Date.now() + "-" + safe;
-        const up = await db.storage.from(BUCKET).upload(path, file);
+        const up = await db.storage.from(BUCKET).upload(path, file, {
+          contentType: file.type || guessType(file.name),
+          cacheControl: "3600",
+          upsert: false
+        });
         if (up.error) throw up.error;
         const url = db.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
         const ins = await db.from("reports")
@@ -499,6 +503,22 @@
 
   function fmtMonth(d) {
     return d.toLocaleDateString(undefined, { month: "short", year: "numeric" });
+  }
+
+  // Some browsers leave file.type blank; infer a sensible type from the
+  // extension so files (especially .html) open/render correctly.
+  function guessType(name) {
+    const ext = (name.split(".").pop() || "").toLowerCase();
+    const map = {
+      html: "text/html", htm: "text/html",
+      css: "text/css", js: "text/javascript",
+      json: "application/json", csv: "text/csv",
+      txt: "text/plain", md: "text/markdown",
+      pdf: "application/pdf",
+      png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg",
+      gif: "image/gif", webp: "image/webp", svg: "image/svg+xml"
+    };
+    return map[ext] || "application/octet-stream";
   }
 
   function escapeHtml(str) {
